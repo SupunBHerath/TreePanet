@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tree Map from Google Sheets API</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    #map { height: calc(100vh - 4rem); }
+    .popup-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;
+    }
+    .popup-content {
+      background: white; padding: 1.5rem; border-radius: 1rem;
+      max-width: 90%; max-height: 90vh; overflow-y: auto; position: relative;
+      box-shadow: 0 10px 15px rgba(0,0,0,0.1); transform: scale(0.95);
+      transition: transform 0.3s ease-in-out;
+    }
+    .popup-content.show { transform: scale(1); }
+    @media (min-width: 640px) { .popup-content { max-width: 400px; } }
+    .popup-close {
+      position: absolute; top: 0.5rem; right: 0.5rem;
+      cursor: pointer; font-size: 1.5rem; color: #4b5563;
+    }
+    .popup-image {
+      border-radius: 0.5rem; border: 2px solid #e5e7eb;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-4">
+    <div id="map" class="w-full rounded-lg shadow-md"></div>
+
+    <div id="tree-popup" class="popup-overlay">
+      <div class="popup-content">
+        <span class="popup-close">×</span>
+        <div id="popup-content-inner"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const apiUrl = 'https://script.google.com/macros/s/AKfycbxN_k2zjNOg6YtZKRRIkS8wuptE1NyF2FDweefG_PTXfiZ_Va5ds8unrK_iyuFdwVIS/exec'
+
+    let map;
+    let markers = [];
+    let trees = [];
+
+    async function fetchTreeData() {
+      try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) throw new Error('Network response not ok');
+        const data = await response.json();
+        // Convert lat/lng to float and filter invalid
+        return data.map(tree => ({
+          ...tree,
+          lat: parseFloat(tree.lat),
+          lng: parseFloat(tree.lng),
+          location: [parseFloat(tree.lat), parseFloat(tree.lng)]
+        })).filter(tree => !isNaN(tree.lat) && !isNaN(tree.lng));
+      } catch (err) {
+        console.error('Fetch error:', err);
+        return [];
+      }
+    }
+
+    function clearMarkers() {
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+    }
+
+    function addMarkers(trees) {
+      trees.forEach((tree, index) => {
+        const marker = L.marker(tree.location).addTo(map);
+        marker.bindPopup(`
+          <b>${tree.name}</b><br>
+          <img src="${tree.image}" alt="${tree.name}" class="w-100 object-cover mt-2" style="max-height:100px; width:auto;">
+          <button onclick="showPopupByIndex(${index})"
+                  class="mt-2 bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 text-sm flex items-center justify-center">
+            <i class="fas fa-info-circle mr-1"></i> View Details
+          </button>
+        `);
+        markers.push(marker);
+      });
+    }
+
+    function showPopup(tree) {
+      const popup = document.getElementById('tree-popup');
+      const popupContent = document.getElementById('popup-content-inner');
+      const treeNameUrl = tree.name.toLowerCase().replace(/\s+/g, '-');
+      const qrUrl = `${window.location.origin}/?tree=${treeNameUrl}&popup=true`;
+
+      popupContent.innerHTML = `
+        <img src="${tree.image}" alt="${tree.name}" class="popup-image w-full h-40 sm:h-48 object-cover mb-4">
+        <h2 class="text-xl font-bold text-gray-800 mb-2">${tree.name}</h2>
+        <p class="italic text-sm text-gray-500 mb-3">${tree.scientificName}</p>
+        <p class="text-sm text-gray-700 mb-4">${tree.description}</p>
+        <button onclick="downloadQRCode('${qrUrl}', '${tree.name}')" 
+                class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded w-full sm:w-auto flex items-center justify-center">
+          <i class="fas fa-qrcode mr-2"></i> Download QR Code
+        </button>
+      `;
+
+      if (typeof QRCode !== 'undefined') {
+        const qrDiv = document.createElement('div');
+        try {
+          new QRCode(qrDiv, { text: qrUrl, width: 100, height: 100 });
+          popupContent.appendChild(qrDiv);
+        } catch {
+          popupContent.innerHTML += `<p class="text-red-500 text-sm mt-2">QR code generation failed.</p>`;
+        }
+      }
+
+      popup.style.display = 'flex';
+      setTimeout(() => {
+        document.querySelector('.popup-content').classList.add('show');
+      }, 10);
+    }
+
+    function downloadQRCode(url, treeName) {
+      if (typeof QRCode === 'undefined') return alert('QR code unavailable');
+      const qrDiv = document.createElement('div');
+      new QRCode(qrDiv, { text: url, width: 200, height: 200 });
+      setTimeout(() => {
+        const canvas = qrDiv.querySelector('canvas');
+        if (canvas) {
+          const link = document.createElement('a');
+          link.href = canvas.toDataURL('image/png');
+          link.download = `${treeName.toLowerCase().replace(/\s+/g, '-')}-qrcode.png`;
+          link.click();
+        } else {
+          alert('QR code generation failed');
+        }
+      }, 100);
+    }
+
+    function closePopup() {
+      const popup = document.getElementById('tree-popup');
+      document.querySelector('.popup-content').classList.remove('show');
+      setTimeout(() => popup.style.display = 'none', 300);
+    }
+
+    function showPopupByIndex(index) {
+      const tree = trees[index];
+      showPopup(tree);
+    }
+
+    async function refreshMapData() {
+      trees = await fetchTreeData();
+      clearMarkers();
+      addMarkers(trees);
+    }
+
+    async function initMap() {
+      map = L.map('map').setView([7.8731, 80.7718], 7);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+      }).addTo(map);
+
+      await refreshMapData();
+
+      const params = new URLSearchParams(window.location.search);
+      const treeParam = params.get('tree');
+      const popupParam = params.get('popup');
+      if (treeParam && popupParam === 'true') {
+        const match = trees.find(t => t.name.toLowerCase().replace(/\s+/g, '-') === treeParam.toLowerCase());
+        if (match) showPopup(match);
+      }
+
+      // Auto refresh every 5 minutes (optional)
+      setInterval(refreshMapData, 300000);
+    }
+
+    window.onload = () => {
+      initMap();
+      document.querySelector('.popup-close').addEventListener('click', closePopup);
+      document.getElementById('tree-popup').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closePopup();
+      });
+    };
+  </script>
+</body>
+</html>
