@@ -255,8 +255,8 @@
           imageBase64,
         };
 
-        const apiUrl =
-          "https://script.google.com/macros/s/AKfycbxN_k2zjNOg6YtZKRRIkS8wuptE1NyF2FDweefG_PTXfiZ_Va5ds8unrK_iyuFdwVIS/exec";
+        const apiUrl = "https://corsproxy.io/?" + encodeURIComponent("https://script.google.com/macros/s/AKfycbxN_k2zjNOg6YtZKRRIkS8wuptE1NyF2FDweefG_PTXfiZ_Va5ds8unrK_iyuFdwVIS/exec");
+
 
         const response = await fetch(apiUrl, {
           method: "POST",
